@@ -1,0 +1,49 @@
+/*
+ * Copyright 2020 wcaokaze
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.wcaokaze.efficientcoroutinemanager
+
+import kotlinx.coroutines.*
+import java.util.concurrent.*
+
+class DequeDispatcher(workerThreadCount: Int = 3) {
+   private val deque = LinkedBlockingDeque<DequeExecutorService.Request<*>>()
+   private val channel = RequestChannel()
+
+   private val workerThreads = List(workerThreadCount) {
+      DequeExecutorService.WorkerThread(channel).also { it.start() }
+   }
+
+   val first: CoroutineDispatcher = EnqueueFirstExecutorService(channel, deque).asCoroutineDispatcher()
+   val last:  CoroutineDispatcher = EnqueueLastExecutorService (channel, deque).asCoroutineDispatcher()
+
+   private inner class RequestChannel : DequeExecutorService.RequestChannel {
+      @Volatile
+      private var isShutdown = false
+
+      override fun shutdown() {
+         isShutdown = true
+
+         for (t in workerThreads) {
+            t.interrupt()
+         }
+      }
+
+      override fun isShutdown() = isShutdown
+
+      override fun take(): DequeExecutorService.Request<*> = deque.takeFirst()
+   }
+}
