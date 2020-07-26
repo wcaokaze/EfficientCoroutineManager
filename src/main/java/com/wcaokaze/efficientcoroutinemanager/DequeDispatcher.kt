@@ -19,6 +19,15 @@ package com.wcaokaze.efficientcoroutinemanager
 import kotlinx.coroutines.*
 import java.util.concurrent.*
 
+/**
+ * タスクを両端キューに追加するDispatcherです。
+ *
+ * [first]で両端キューの先頭に、[last]で両端キューの末尾にタスクを追加でき、
+ * タスクは先頭から順に実行されます。
+ *
+ * @param workerThreadCount
+ *   両端キューに追加されたタスクを実行するためのスレッドの数
+ */
 class DequeDispatcher(workerThreadCount: Int = 3) {
    private val deque = LinkedBlockingDeque<DequeExecutorService.Request<*>>()
    private val channel = RequestChannel()
