@@ -16,122 +16,15 @@
 
 package com.wcaokaze.efficientcoroutinemanager;
 
-import java.util.*;
-import java.util.concurrent.*;
-
 /* package */ abstract class DequeExecutorService {
 
    // ==== Request =============================================================
 
-   /* package */ abstract class Request<V> implements Future<V> {
-      private volatile boolean mIsDone = false;
-      private volatile boolean mIsCancelled = false;
-
-      // Nullable
-      private Thread mWorkerThread = null;
-
-      // Nullable
-      private V mResult = null;
-
-      // Nullable
-      private Throwable mFailureCause = null;
-
-      /* package */ Request() {
-         mRequests.add(this);
-      }
-
-      public abstract void invoke(Thread workerThread) throws Exception;
-
-      @Override
-      public final boolean isCancelled() {
-         return mIsCancelled;
-      }
-
-      @Override
-      public final boolean isDone() {
-         return mIsDone || mIsCancelled;
-      }
-
-      @Override
-      public final synchronized boolean cancel(final boolean mayInterruptIfRunning) {
-         if (mIsDone) { return false; }
-
-         mIsCancelled = true;
-
-         mRequests.remove(this);
-
-         if (mayInterruptIfRunning) {
-            if (mWorkerThread != null) {
-               mWorkerThread.interrupt();
-               mWorkerThread = null;
-            }
-         }
-
-         synchronized (this) {
-            notifyAll();
-         }
-
-         return true;
-      }
-
-      @Override
-      public final synchronized V get() throws ExecutionException, InterruptedException {
-         while (!mIsDone) {
-            if (mIsCancelled) { throw new CancellationException(); }
-
-            wait();
-         }
-
-         if (mFailureCause != null) {
-            throw new ExecutionException(mFailureCause);
-         }
-
-         return mResult;
-      }
-
-      @Override
-      public final synchronized V get(final long timeout, final TimeUnit unit)
-            throws ExecutionException, InterruptedException, TimeoutException
-      {
-         final long timeoutMillis = unit.toMillis(timeout);
-         final long abortTime = System.currentTimeMillis() + timeoutMillis;
-
-         while (!mIsDone) {
-            if (System.currentTimeMillis() > abortTime) { throw new TimeoutException(); }
-            if (mIsCancelled) { throw new CancellationException(); }
-
-            wait(timeoutMillis);
-         }
-
-         if (mFailureCause != null) {
-            throw new ExecutionException(mFailureCause);
-         }
-
-         return mResult;
-      }
-
-      /* package */ final synchronized void onActive(final Thread workerThread) {
-         mWorkerThread = workerThread;
-      }
-
-      /* package */ final synchronized void onDone(final V result) {
-         mWorkerThread = null;
-         mIsDone = true;
-         mResult = result;
-         mRequests.remove(this);
-         notifyAll();
-      }
-
-      /* package */ final synchronized void onFail(final Throwable cause) {
-         mWorkerThread = null;
-         mIsDone = true;
-         mFailureCause = cause;
-         mRequests.remove(this);
-         notifyAll();
-      }
+   /* package */ abstract class Request {
+      public abstract void invoke() throws Exception;
    }
 
-   private final class RunnableRequest extends Request<Void> {
+   private final class RunnableRequest extends Request {
       private final Runnable mRunnable;
 
       /* package */ RunnableRequest(final Runnable runnable) {
@@ -139,16 +32,11 @@ import java.util.concurrent.*;
       }
 
       @Override
-      public final void invoke(final Thread workerThread) {
-         if (isCancelled()) { return; }
-
-         onActive(workerThread);
-
+      public final void invoke() {
          try {
             mRunnable.run();
-            onDone(null);
          } catch (final Throwable t) {
-            onFail(t);
+            // ignore
          }
       }
    }
@@ -156,7 +44,7 @@ import java.util.concurrent.*;
    // ==== RequestChannel ======================================================
 
    /* package */ interface RequestChannel {
-      public Request<?> take() throws InterruptedException;
+      public Request take() throws InterruptedException;
    }
 
    // ==== WorkerThread ========================================================
@@ -175,7 +63,7 @@ import java.util.concurrent.*;
                // clear interruption status
                Thread.interrupted();
 
-               mChannel.take().invoke(this);
+               mChannel.take().invoke();
             } catch (final Exception e) {
                // ignore
             }
@@ -185,10 +73,7 @@ import java.util.concurrent.*;
 
    // ==========================================================================
 
-   private final List<Request<?>> mRequests
-         = Collections.synchronizedList(new ArrayList<Request<?>>());
-
-   protected abstract void enqueueRequest(final Request<?> request);
+   protected abstract void enqueueRequest(final Request request);
 
    public final void execute(final Runnable command) {
       final RunnableRequest request = new RunnableRequest(command);

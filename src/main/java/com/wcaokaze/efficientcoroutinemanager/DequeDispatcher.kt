@@ -30,7 +30,7 @@ import kotlin.coroutines.*
  *   両端キューに追加されたタスクを実行するためのスレッドの数
  */
 class DequeDispatcher(workerThreadCount: Int = 3) {
-   private val deque = LinkedBlockingDeque<DequeExecutorService.Request<*>>()
+   private val deque = LinkedBlockingDeque<DequeExecutorService.Request>()
    private val channel = RequestChannel()
 
    init {
@@ -57,6 +57,6 @@ class DequeDispatcher(workerThreadCount: Int = 3) {
    }
 
    private inner class RequestChannel : DequeExecutorService.RequestChannel {
-      override fun take(): DequeExecutorService.Request<*> = deque.takeFirst()
+      override fun take(): DequeExecutorService.Request = deque.takeFirst()
    }
 }
