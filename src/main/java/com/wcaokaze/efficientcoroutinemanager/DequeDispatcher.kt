@@ -18,6 +18,7 @@ package com.wcaokaze.efficientcoroutinemanager
 
 import kotlinx.coroutines.*
 import java.util.concurrent.*
+import kotlin.coroutines.*
 
 /**
  * タスクを両端キューに追加するDispatcherです。
@@ -36,8 +37,21 @@ class DequeDispatcher(workerThreadCount: Int = 3) {
       DequeExecutorService.WorkerThread(channel).also { it.start() }
    }
 
-   val first: CoroutineDispatcher = EnqueueFirstExecutorService(channel, deque).asCoroutineDispatcher()
-   val last:  CoroutineDispatcher = EnqueueLastExecutorService (channel, deque).asCoroutineDispatcher()
+   val first: CoroutineDispatcher = object : CoroutineDispatcher() {
+      private val executor = EnqueueFirstExecutorService(channel, deque)
+
+      override fun dispatch(context: CoroutineContext, block: Runnable) {
+         executor.execute(block)
+      }
+   }
+
+   val last: CoroutineDispatcher = object : CoroutineDispatcher() {
+      private val executor = EnqueueLastExecutorService(channel, deque)
+
+      override fun dispatch(context: CoroutineContext, block: Runnable) {
+         executor.execute(block)
+      }
+   }
 
    private inner class RequestChannel : DequeExecutorService.RequestChannel {
       @Volatile
