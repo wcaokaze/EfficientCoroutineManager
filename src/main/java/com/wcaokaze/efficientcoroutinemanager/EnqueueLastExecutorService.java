@@ -22,10 +22,7 @@ import java.util.concurrent.BlockingDeque;
 /* package */ final class EnqueueLastExecutorService extends DequeExecutorService {
    private final Deque<Request<?>> mRequestDeque;
 
-   /* package */ EnqueueLastExecutorService(final RequestChannel channel,
-                                            final BlockingDeque<Request<?>> requestDeque)
-   {
-      super(channel);
+   /* package */ EnqueueLastExecutorService(final BlockingDeque<Request<?>> requestDeque) {
       mRequestDeque = requestDeque;
    }
 

@@ -33,12 +33,15 @@ class DequeDispatcher(workerThreadCount: Int = 3) {
    private val deque = LinkedBlockingDeque<DequeExecutorService.Request<*>>()
    private val channel = RequestChannel()
 
-   private val workerThreads = List(workerThreadCount) {
-      DequeExecutorService.WorkerThread(channel).also { it.start() }
+   init {
+      repeat (workerThreadCount) {
+         val workerThread = DequeExecutorService.WorkerThread(channel)
+         workerThread.start()
+      }
    }
 
    val first: CoroutineDispatcher = object : CoroutineDispatcher() {
-      private val executor = EnqueueFirstExecutorService(channel, deque)
+      private val executor = EnqueueFirstExecutorService(deque)
 
       override fun dispatch(context: CoroutineContext, block: Runnable) {
          executor.execute(block)
@@ -46,7 +49,7 @@ class DequeDispatcher(workerThreadCount: Int = 3) {
    }
 
    val last: CoroutineDispatcher = object : CoroutineDispatcher() {
-      private val executor = EnqueueLastExecutorService(channel, deque)
+      private val executor = EnqueueLastExecutorService(deque)
 
       override fun dispatch(context: CoroutineContext, block: Runnable) {
          executor.execute(block)
@@ -54,11 +57,6 @@ class DequeDispatcher(workerThreadCount: Int = 3) {
    }
 
    private inner class RequestChannel : DequeExecutorService.RequestChannel {
-      @Volatile
-      private var isShutdown = false
-
-      override fun isShutdown() = isShutdown
-
       override fun take(): DequeExecutorService.Request<*> = deque.takeFirst()
    }
 }

@@ -156,8 +156,6 @@ import java.util.concurrent.*;
    // ==== RequestChannel ======================================================
 
    /* package */ interface RequestChannel {
-      public boolean isShutdown();
-
       public Request<?> take() throws InterruptedException;
    }
 
@@ -172,7 +170,7 @@ import java.util.concurrent.*;
 
       @Override
       public void run() {
-         while (!mChannel.isShutdown()) {
+         while (true) {
             try {
                // clear interruption status
                Thread.interrupted();
@@ -187,20 +185,12 @@ import java.util.concurrent.*;
 
    // ==========================================================================
 
-   private final RequestChannel mChannel;
-
    private final List<Request<?>> mRequests
          = Collections.synchronizedList(new ArrayList<Request<?>>());
-
-   protected DequeExecutorService(final RequestChannel channel) {
-      mChannel = channel;
-   }
 
    protected abstract void enqueueRequest(final Request<?> request);
 
    public final void execute(final Runnable command) {
-      if (mChannel.isShutdown()) { throw new RejectedExecutionException(); }
-
       final RunnableRequest request = new RunnableRequest(command);
       enqueueRequest(request);
    }
