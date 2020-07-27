@@ -18,6 +18,7 @@ package com.wcaokaze.efficientcoroutinemanager
 
 import kotlinx.coroutines.*
 import java.util.concurrent.*
+import kotlin.concurrent.*
 import kotlin.coroutines.*
 
 /**
@@ -31,32 +32,33 @@ import kotlin.coroutines.*
  */
 class DequeDispatcher(workerThreadCount: Int = 3) {
    private val deque = LinkedBlockingDeque<Runnable>()
-   private val channel = RequestChannel()
 
    init {
       repeat (workerThreadCount) {
-         val workerThread = DequeExecutorService.WorkerThread(channel)
-         workerThread.start()
+         thread {
+            while (true) {
+               try {
+                  // clear interruption status
+                  Thread.interrupted()
+
+                  deque.takeFirst().run()
+               } catch (e: Exception) {
+                  // ignore
+               }
+            }
+         }
       }
    }
 
    val first: CoroutineDispatcher = object : CoroutineDispatcher() {
-      private val executor = EnqueueFirstExecutorService(deque)
-
       override fun dispatch(context: CoroutineContext, block: Runnable) {
-         executor.enqueueRequest(block)
+         deque.addFirst(block)
       }
    }
 
    val last: CoroutineDispatcher = object : CoroutineDispatcher() {
-      private val executor = EnqueueLastExecutorService(deque)
-
       override fun dispatch(context: CoroutineContext, block: Runnable) {
-         executor.enqueueRequest(block)
+         deque.addLast(block)
       }
-   }
-
-   private inner class RequestChannel : DequeExecutorService.RequestChannel {
-      override fun take(): Runnable = deque.takeFirst()
    }
 }
