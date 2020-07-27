@@ -18,33 +18,10 @@ package com.wcaokaze.efficientcoroutinemanager;
 
 /* package */ abstract class DequeExecutorService {
 
-   // ==== Request =============================================================
-
-   /* package */ abstract class Request {
-      public abstract void invoke() throws Exception;
-   }
-
-   private final class RunnableRequest extends Request {
-      private final Runnable mRunnable;
-
-      /* package */ RunnableRequest(final Runnable runnable) {
-         mRunnable = runnable;
-      }
-
-      @Override
-      public final void invoke() {
-         try {
-            mRunnable.run();
-         } catch (final Throwable t) {
-            // ignore
-         }
-      }
-   }
-
    // ==== RequestChannel ======================================================
 
    /* package */ interface RequestChannel {
-      public Request take() throws InterruptedException;
+      public Runnable take() throws InterruptedException;
    }
 
    // ==== WorkerThread ========================================================
@@ -63,7 +40,7 @@ package com.wcaokaze.efficientcoroutinemanager;
                // clear interruption status
                Thread.interrupted();
 
-               mChannel.take().invoke();
+               mChannel.take().run();
             } catch (final Exception e) {
                // ignore
             }
@@ -71,12 +48,5 @@ package com.wcaokaze.efficientcoroutinemanager;
       }
    }
 
-   // ==========================================================================
-
-   protected abstract void enqueueRequest(final Request request);
-
-   public final void execute(final Runnable command) {
-      final RunnableRequest request = new RunnableRequest(command);
-      enqueueRequest(request);
-   }
+   protected abstract void enqueueRequest(final Runnable request);
 }

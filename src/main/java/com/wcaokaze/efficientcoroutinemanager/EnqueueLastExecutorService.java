@@ -20,14 +20,14 @@ import java.util.Deque;
 import java.util.concurrent.BlockingDeque;
 
 /* package */ final class EnqueueLastExecutorService extends DequeExecutorService {
-   private final Deque<Request> mRequestDeque;
+   private final Deque<Runnable> mRequestDeque;
 
-   /* package */ EnqueueLastExecutorService(final BlockingDeque<Request> requestDeque) {
+   /* package */ EnqueueLastExecutorService(final BlockingDeque<Runnable> requestDeque) {
       mRequestDeque = requestDeque;
    }
 
    @Override
-   protected final void enqueueRequest(final Request request) {
+   protected final void enqueueRequest(final Runnable request) {
       mRequestDeque.addLast(request);
    }
 }
