@@ -57,14 +57,6 @@ class DequeDispatcher(workerThreadCount: Int = 3) {
       @Volatile
       private var isShutdown = false
 
-      override fun shutdown() {
-         isShutdown = true
-
-         for (t in workerThreads) {
-            t.interrupt()
-         }
-      }
-
       override fun isShutdown() = isShutdown
 
       override fun take(): DequeExecutorService.Request<*> = deque.takeFirst()

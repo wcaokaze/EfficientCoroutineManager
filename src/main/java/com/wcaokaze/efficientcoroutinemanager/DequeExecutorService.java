@@ -19,7 +19,7 @@ package com.wcaokaze.efficientcoroutinemanager;
 import java.util.*;
 import java.util.concurrent.*;
 
-/* package */ abstract class DequeExecutorService implements ExecutorService {
+/* package */ abstract class DequeExecutorService {
 
    // ==== Request =============================================================
 
@@ -42,8 +42,6 @@ import java.util.concurrent.*;
 
       public abstract void invoke(Thread workerThread) throws Exception;
 
-      protected abstract Runnable asRunnable();
-
       @Override
       public final boolean isCancelled() {
          return mIsCancelled;
@@ -52,10 +50,6 @@ import java.util.concurrent.*;
       @Override
       public final boolean isDone() {
          return mIsDone || mIsCancelled;
-      }
-
-      /* package */ final boolean isActive() {
-         return mWorkerThread != null;
       }
 
       @Override
@@ -157,53 +151,11 @@ import java.util.concurrent.*;
             onFail(t);
          }
       }
-
-      @Override
-      protected final Runnable asRunnable() {
-         return mRunnable;
-      }
-   }
-
-   private final class CallableRequest<V> extends Request<V> {
-      private final Callable<V> mCallable;
-
-      /* package */ CallableRequest(final Callable<V> callable) {
-         mCallable = callable;
-      }
-
-      @Override
-      public final void invoke(final Thread workerThread) {
-         if (isCancelled()) { return; }
-
-         onActive(workerThread);
-
-         try {
-            final V result = mCallable.call();
-            onDone(result);
-         } catch (final Throwable t) {
-            onFail(t);
-         }
-      }
-
-      @Override
-      protected final Runnable asRunnable() {
-         return new Runnable() {
-            @Override
-            public final void run() {
-               try {
-                  mCallable.call();
-               } catch (final Exception e) {
-                  throw new RuntimeException(e);
-               }
-            }
-         };
-      }
    }
 
    // ==== RequestChannel ======================================================
 
    /* package */ interface RequestChannel {
-      public void shutdown();
       public boolean isShutdown();
 
       public Request<?> take() throws InterruptedException;
@@ -246,194 +198,10 @@ import java.util.concurrent.*;
 
    protected abstract void enqueueRequest(final Request<?> request);
 
-   @Override
    public final void execute(final Runnable command) {
       if (mChannel.isShutdown()) { throw new RejectedExecutionException(); }
 
       final RunnableRequest request = new RunnableRequest(command);
       enqueueRequest(request);
-   }
-
-   @Override
-   public final Future<?> submit(final Runnable task) {
-      if (mChannel.isShutdown()) { throw new RejectedExecutionException(); }
-
-      final RunnableRequest request = new RunnableRequest(task);
-      enqueueRequest(request);
-      return request;
-   }
-
-   @Override
-   public final <T> Future<T> submit(final Callable<T> task) {
-      if (mChannel.isShutdown()) { throw new RejectedExecutionException(); }
-
-      final CallableRequest<T> request = new CallableRequest<T>(task);
-      enqueueRequest(request);
-      return request;
-   }
-
-   @Override
-   public final <T> Future<T> submit(final Runnable task, final T result) {
-      return submit(new Callable<T>() {
-         @Override
-         public final T call() {
-            task.run();
-            return result;
-         }
-      });
-   }
-
-   @Override
-   public final <T> List<Future<T>> invokeAll(final Collection<? extends Callable<T>> tasks)
-         throws InterruptedException
-   {
-      final List<Future<T>> futures = new ArrayList<Future<T>>();
-
-      for (final Callable<T> task : tasks) {
-         futures.add(submit(task));
-      }
-
-      for (final Future<T> future : futures) {
-         try {
-            future.get();
-         } catch (final ExecutionException e) {
-            // ignore
-         }
-      }
-
-      return futures;
-   }
-
-   @Override
-   public final <T> List<Future<T>> invokeAll(final Collection<? extends Callable<T>> tasks,
-                                              final long timeout,
-                                              final TimeUnit unit)
-         throws InterruptedException
-   {
-      final List<Future<T>> futures = new ArrayList<Future<T>>();
-
-      for (final Callable<T> task : tasks) {
-         futures.add(submit(task));
-      }
-
-      final long abortTime = System.currentTimeMillis() + unit.toMillis(timeout);
-
-      for (final Future<T> future : futures) {
-         final long timeoutMillis = abortTime - System.currentTimeMillis();
-
-         if (timeoutMillis < 0L) { throw new InterruptedException(); }
-
-         try {
-            future.get(timeoutMillis, TimeUnit.MILLISECONDS);
-         } catch (final TimeoutException e) {
-            throw new InterruptedException();
-         } catch (final ExecutionException e) {
-            // ignore
-         }
-      }
-
-      return futures;
-   }
-
-   @Override
-   public final <T> T invokeAny(final Collection<? extends Callable<T>> tasks)
-         throws ExecutionException
-   {
-      if (tasks.isEmpty()) { throw new IllegalArgumentException(); }
-
-      for (final Callable<T> task : tasks) {
-         try {
-            return submit(task).get();
-         } catch (final Exception e) {
-            // continue
-         }
-      }
-
-      throw new ExecutionException(new Exception());
-   }
-
-   @Override
-   public final <T> T invokeAny(final Collection<? extends Callable<T>> tasks,
-                                final long timeout,
-                                final TimeUnit unit)
-         throws ExecutionException, TimeoutException
-   {
-      if (tasks.isEmpty()) { throw new IllegalArgumentException(); }
-
-      final long abortTime = System.currentTimeMillis() + unit.toMillis(timeout);
-
-      for (final Callable<T> task : tasks) {
-         final long timeoutMillis = abortTime - System.currentTimeMillis();
-
-         if (timeoutMillis < 0L) { throw new TimeoutException(); }
-
-         try {
-            return submit(task).get(timeoutMillis, TimeUnit.MILLISECONDS);
-         } catch (final Exception e) {
-            // continue
-         }
-      }
-
-      throw new ExecutionException(new Exception());
-   }
-
-   @Override
-   public final void shutdown() {
-      mChannel.shutdown();
-   }
-
-   @Override
-   public final List<Runnable> shutdownNow() {
-      mChannel.shutdown();
-
-      final List<Runnable> nonCommencedTasks = new ArrayList<Runnable>();
-
-      for (final Request<?> request : mRequests) {
-         request.cancel(/* interruptIfRunning = */ true);
-
-         if (!request.isActive()) {
-            nonCommencedTasks.add(request.asRunnable());
-         }
-      }
-
-      return nonCommencedTasks;
-   }
-
-   @Override
-   public final boolean isShutdown() {
-      return mChannel.isShutdown();
-   }
-
-   @Override
-   public final boolean isTerminated() {
-      return mChannel.isShutdown() && mRequests.isEmpty();
-   }
-
-   @Override
-   public final boolean awaitTermination(final long timeout,
-                                         final TimeUnit unit)
-         throws InterruptedException
-   {
-      if (!isShutdown()) {
-         shutdown();
-      }
-
-      final long abortTime = System.currentTimeMillis() + unit.toMillis(timeout);
-
-      while (!mRequests.isEmpty()) {
-         final long timeoutMillis = abortTime - System.currentTimeMillis();
-
-         if (timeoutMillis < 0L) { return false; }
-
-         try {
-            mRequests.get(0).get(timeoutMillis, TimeUnit.MILLISECONDS);
-         } catch (final ExecutionException e) {
-            // ignore
-         } catch (final TimeoutException e) {
-            throw new InterruptedException();
-         }
-      }
-
-      return true;
    }
 }
