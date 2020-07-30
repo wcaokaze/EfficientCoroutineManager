@@ -121,6 +121,36 @@ class TaskMapTest {
       }
    }
 
+   @Test fun 重複_asyncのあとにlaunch_isActive() {
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val deferred = async (taskMap, taskId = 0) { delay(50L) }
+         val job      = launch(taskMap, taskId = 0) { delay(50L) }
+
+         assertTrue(deferred.isActive)
+         assertTrue(job.isActive)
+         deferred.join()
+         assertFalse(deferred.isActive)
+         assertFalse(job.isActive)
+      }
+   }
+
+   @Test fun 重複_launchのあとにasync_isActive() {
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val job      = launch(taskMap, taskId = 0) { delay(50L) }
+         val deferred = async (taskMap, taskId = 0) { delay(50L) }
+
+         assertTrue(deferred.isActive)
+         assertTrue(job.isActive)
+         deferred.join()
+         assertFalse(deferred.isActive)
+         assertFalse(job.isActive)
+      }
+   }
+
    // ==========================================================================
 
    @Test fun 重複してるけど先に実行したタスクがすでに終わってる() {
