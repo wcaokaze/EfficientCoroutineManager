@@ -19,6 +19,20 @@ package com.wcaokaze.efficientcoroutinemanager
 import kotlinx.coroutines.*
 import kotlin.coroutines.*
 
+/**
+ * 指定したtaskIdのコルーチンがまだlaunchされていない場合、
+ * もしくは過去にlaunchされたがすでに完了済みの場合、launchします。
+ *
+ * 指定したtaskIdのコルーチンがすでにlaunchされていて、実行中であるか、もしくは
+ * いずれかのsuspendポイントで待機中、
+ * もしくはまだ開始されていないが処理が予約されていて待機中である場合には
+ * そのコルーチンのJobを返却します。
+ *
+ * 典型的にはGET系のネットワーク処理の重複を避けるために使いますが、taskIdとして
+ * [java.net.URL]は使わないように注意してください。
+ * [java.net.URLのequals](https://docs.oracle.com/javase/jp/8/docs/api/java/net/URL.html#equals-java.lang.Object-)
+ * は、IPアドレスの解決を行うため、とんでもなく遅いです。
+ */
 inline fun CoroutineScope.launch(
       context: CoroutineContext = EmptyCoroutineContext,
       start: CoroutineStart = CoroutineStart.DEFAULT,
@@ -41,6 +55,29 @@ inline fun CoroutineScope.launch(
    }
 }
 
+/**
+ * 指定したtaskIdのコルーチンがまだlaunchされていない場合、
+ * もしくは過去にlaunchされたがすでに完了済みの場合、launchします。
+ *
+ * 指定したtaskIdのコルーチンがすでにlaunchされていて、実行中であるか、もしくは
+ * いずれかのsuspendポイントで待機中、
+ * もしくはまだ開始されていないが処理が予約されていて待機中である場合には
+ * そのコルーチンのDeferredを返却します。
+ *
+ * 典型的にはGET系のネットワーク処理の重複を避けるために使いますが、taskIdとして
+ * [java.net.URL]は使わないように注意してください。
+ * [java.net.URLのequals](https://docs.oracle.com/javase/jp/8/docs/api/java/net/URL.html#equals-java.lang.Object-)
+ * は、IPアドレスの解決を行うため、とんでもなく遅いです。
+ *
+ * また、全く違う処理に偶然同じtaskIdを割り振ることによって
+ * ClassCastExceptionが発生し得ることにも注意してください。
+ * ```kotlin
+ * val deferredInt    = async(taskId = 0) { fetchInt() }
+ * val deferredString = async(taskId = 0) { fetchString() }
+ *
+ * val string = deferredString.await() // ClassCastException
+ * ```
+ */
 inline fun <T> CoroutineScope.async(
       context: CoroutineContext = EmptyCoroutineContext,
       start: CoroutineStart = CoroutineStart.DEFAULT,
