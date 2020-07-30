@@ -81,6 +81,20 @@ class TaskMapTest {
       assertEquals(listOf(0), results)
    }
 
+   @Test fun taskIdが重複しててもTaskMapが違ったら実行される() {
+      val results = LinkedList<Int>()
+
+      runBlocking {
+         val taskMap0 = TaskMap()
+         val taskMap1 = TaskMap()
+
+         launch(taskMap0, taskId = 0) { results += 0; delay(50L) }
+         launch(taskMap1, taskId = 0) { results += 1; delay(50L) }
+      }
+
+      assertEquals(listOf(0, 1), results)
+   }
+
    @Test fun 重複あり_async() {
       val results = LinkedList<Int>()
 
