@@ -151,6 +151,67 @@ class TaskMapTest {
       }
    }
 
+   @Test fun 重複_asyncのあとにlaunch_join() {
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val deferred = async (taskMap, taskId = 0) { delay(50L) }
+         val job      = launch(taskMap, taskId = 0) { delay(50L) }
+
+         assertTrue(deferred.isActive)
+         assertTrue(job.isActive)
+         job.join()
+         assertFalse(deferred.isActive)
+         assertFalse(job.isActive)
+      }
+   }
+
+   @Test fun 重複_launchのあとにasync_たまたまasyncの返り値もUnitの場合のawait() {
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val job      = launch(taskMap, taskId = 0) { delay(50L) }
+         val deferred = async (taskMap, taskId = 0) { delay(50L) }
+
+         assertTrue(deferred.isActive)
+         assertTrue(job.isActive)
+         val unit = deferred.await()
+         assertFalse(deferred.isActive)
+         assertFalse(job.isActive)
+         assertSame(Unit, unit)
+      }
+   }
+
+   @Test fun 重複_launchのあとにasync_awaitするとUnitが返ってきてClassCastExceptionになる() {
+      runBlocking {
+         val taskMap = TaskMap()
+
+         launch(taskMap, taskId = 0) { delay(50L) }
+         val deferred = async(taskMap, taskId = 0) { delay(50L); 3 }
+
+         assertFailsWith<ClassCastException> {
+            // コンパイラにキャストを挿入させるためにawaitの返り値を使う必要がある
+            @Suppress("UNUSED_VARIABLE")
+            val i = deferred.await()
+         }
+      }
+   }
+
+   @Test fun 重複_async同士でも型が違うとClassCastExceptionになるんだぜ() {
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val deferred0 = async(taskMap, taskId = 0) { delay(50L); "" }
+         val deferred1 = async(taskMap, taskId = 0) { delay(50L); 3 }
+
+         assertFailsWith<ClassCastException> {
+            // コンパイラにキャストを挿入させるためにawaitの返り値を使う必要がある
+            @Suppress("UNUSED_VARIABLE")
+            val i = deferred1.await()
+         }
+      }
+   }
+
    // ==========================================================================
 
    @Test fun 重複してるけど先に実行したタスクがすでに終わってる() {
