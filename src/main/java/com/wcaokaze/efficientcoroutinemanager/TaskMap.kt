@@ -41,6 +41,48 @@ inline fun CoroutineScope.launch(
    }
 }
 
+inline fun <T> CoroutineScope.async(
+      context: CoroutineContext = EmptyCoroutineContext,
+      start: CoroutineStart = CoroutineStart.DEFAULT,
+      taskId: Any,
+      crossinline block: suspend CoroutineScope.() -> T
+): Deferred<T> {
+   val taskMap = context[TaskMap]!!
+
+   synchronized (taskMap) {
+      val job = taskMap[taskId]
+
+      if (job is Deferred<*>) {
+         @Suppress("UNCHECKED_CAST")
+         return job as Deferred<T>
+      }
+
+      if (job != null) {
+         val deferred = CompletableDeferred<Any?>()
+
+         job.invokeOnCompletion { exception ->
+            if (exception == null) {
+               deferred.complete(Unit)
+            } else {
+               deferred.completeExceptionally(exception)
+            }
+         }
+
+         @Suppress("UNCHECKED_CAST")
+         return deferred as Deferred<T>
+      }
+
+      val deferred = async(context, start) {
+         val r = block()
+         taskMap -= taskId
+         r
+      }
+
+      taskMap[taskId] = deferred
+      return deferred
+   }
+}
+
 @Suppress("FunctionName")
 fun TaskMap(): TaskMap = TaskMapImpl()
 

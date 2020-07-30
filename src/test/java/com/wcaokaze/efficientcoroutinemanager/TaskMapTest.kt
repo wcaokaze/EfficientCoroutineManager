@@ -38,6 +38,36 @@ class TaskMapTest {
       assertEquals(listOf(0, 1), results)
    }
 
+   @Test fun 重複なし_async_すべて実行() {
+      val results = LinkedList<Int>()
+
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val deferred0 = async(taskMap, taskId = 0) { results += 0 }
+         val deferred1 = async(taskMap, taskId = 1) { results += 1 }
+         joinAll(deferred0, deferred1)
+      }
+
+      assertEquals(listOf(0, 1), results)
+   }
+
+   @Test fun 重複なし_launchAsync_すべて実行() {
+      val results = LinkedList<Int>()
+
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val job      = launch(taskMap, taskId = 0) { results += 0 }
+         val deferred = async (taskMap, taskId = 1) { results += 1 }
+         joinAll(job, deferred)
+      }
+
+      assertEquals(listOf(0, 1), results)
+   }
+
+   // ==========================================================================
+
    @Test fun 重複あり_先にlaunchした方のみ実行() {
       val results = LinkedList<Int>()
 
@@ -46,6 +76,20 @@ class TaskMapTest {
 
          launch(taskMap, taskId = 0) { results += 0; delay(50L) }
          launch(taskMap, taskId = 0) { results += 1; delay(50L) }
+      }
+
+      assertEquals(listOf(0), results)
+   }
+
+   @Test fun 重複あり_async() {
+      val results = LinkedList<Int>()
+
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val deferred0 = async(taskMap, taskId = 0) { results += 0; delay(50L) }
+         val deferred1 = async(taskMap, taskId = 0) { results += 1; delay(50L) }
+         joinAll(deferred0, deferred1)
       }
 
       assertEquals(listOf(0), results)
@@ -64,6 +108,21 @@ class TaskMapTest {
       }
    }
 
+   @Test fun 重複あり_async_二回目以降は一回目のDeferredを返す() {
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val deferred0 = async(taskMap, taskId = 0) { delay(50L) }
+         val deferred1 = async(taskMap, taskId = 0) { delay(50L) }
+         val deferred2 = async(taskMap, taskId = 0) { delay(50L) }
+
+         assertSame(deferred0, deferred1)
+         assertSame(deferred0, deferred2)
+      }
+   }
+
+   // ==========================================================================
+
    @Test fun 重複してるけど先に実行したタスクがすでに終わってる() {
       val results = LinkedList<Int>()
 
@@ -73,6 +132,21 @@ class TaskMapTest {
          val job = launch(taskMap, taskId = 0) { results += 0 }
          job.join()
          launch(taskMap, taskId = 0) { results += 1 }
+      }
+
+      assertEquals(listOf(0, 1), results)
+   }
+
+   @Test fun 重複してるけど先に実行したタスクがすでに終わってる_async() {
+      val results = LinkedList<Int>()
+
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val deferred0 = async(taskMap, taskId = 0) { results += 0 }
+         deferred0.join()
+         val deferred1 = async(taskMap, taskId = 0) { results += 1 }
+         deferred1.join()
       }
 
       assertEquals(listOf(0, 1), results)
