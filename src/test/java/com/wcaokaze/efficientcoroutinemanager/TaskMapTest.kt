@@ -44,11 +44,24 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         launch(taskMap, taskId = 0) { results += 0 }
-         launch(taskMap, taskId = 0) { results += 1 }
+         launch(taskMap, taskId = 0) { results += 0; delay(50L) }
+         launch(taskMap, taskId = 0) { results += 1; delay(50L) }
       }
 
       assertEquals(listOf(0), results)
+   }
+
+   @Test fun 重複あり_二回目以降は一回目のJobを返す() {
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val job0 = launch(taskMap, taskId = 0) { delay(50L) }
+         val job1 = launch(taskMap, taskId = 0) { delay(50L) }
+         val job2 = launch(taskMap, taskId = 0) { delay(50L) }
+
+         assertSame(job0, job1)
+         assertSame(job0, job2)
+      }
    }
 
    @Test fun 重複してるけど先に実行したタスクがすでに終わってる() {
