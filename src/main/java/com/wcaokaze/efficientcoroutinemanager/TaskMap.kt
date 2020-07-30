@@ -19,11 +19,11 @@ package com.wcaokaze.efficientcoroutinemanager
 import kotlinx.coroutines.*
 import kotlin.coroutines.*
 
-fun CoroutineScope.launch(
+inline fun CoroutineScope.launch(
       context: CoroutineContext = EmptyCoroutineContext,
       start: CoroutineStart = CoroutineStart.DEFAULT,
       taskId: Any,
-      block: suspend CoroutineScope.() -> Unit
+      crossinline block: suspend CoroutineScope.() -> Unit
 ): Job {
    val taskMap = context[TaskMap]!!
 
@@ -31,7 +31,11 @@ fun CoroutineScope.launch(
       var job = taskMap[taskId]
       if (job != null) { return job }
 
-      job = launch(context, start, block)
+      job = launch(context, start) {
+         block()
+         taskMap -= taskId
+      }
+
       taskMap[taskId] = job
       return job
    }
@@ -45,6 +49,7 @@ interface TaskMap : CoroutineContext.Element {
 
    operator fun get(taskId: Any): Job?
    operator fun set(taskId: Any, job: Job)
+   operator fun minusAssign(taskId: Any)
 }
 
 private class TaskMapImpl : TaskMap {
@@ -54,4 +59,5 @@ private class TaskMapImpl : TaskMap {
 
    override fun get(taskId: Any): Job? = jobMap[taskId]
    override fun set(taskId: Any, job: Job) { jobMap[taskId] = job }
+   override fun minusAssign(taskId: Any) { jobMap -= taskId }
 }

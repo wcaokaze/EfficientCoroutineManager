@@ -50,4 +50,18 @@ class TaskMapTest {
 
       assertEquals(listOf(0), results)
    }
+
+   @Test fun 重複してるけど先に実行したタスクがすでに終わってる() {
+      val results = LinkedList<Int>()
+
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val job = launch(taskMap, taskId = 0) { results += 0 }
+         job.join()
+         launch(taskMap, taskId = 0) { results += 1 }
+      }
+
+      assertEquals(listOf(0, 1), results)
+   }
 }
