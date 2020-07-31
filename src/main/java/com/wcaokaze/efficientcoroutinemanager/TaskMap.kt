@@ -32,6 +32,8 @@ import kotlin.coroutines.*
  * [java.net.URL]は使わないように注意してください。
  * [java.net.URLのequals](https://docs.oracle.com/javase/jp/8/docs/api/java/net/URL.html#equals-java.lang.Object-)
  * は、IPアドレスの解決を行うため、とんでもなく遅いです。
+ *
+ * @see TaskMap
  */
 inline fun CoroutineScope.launch(
       context: CoroutineContext = EmptyCoroutineContext,
@@ -39,7 +41,7 @@ inline fun CoroutineScope.launch(
       taskId: Any,
       crossinline block: suspend CoroutineScope.() -> Unit
 ): Job {
-   val taskMap = context[TaskMap]!!
+   val taskMap = context[TaskMap] ?: GlobalTaskMap
 
    synchronized (taskMap) {
       var job = taskMap[taskId]
@@ -77,6 +79,8 @@ inline fun CoroutineScope.launch(
  *
  * val string = deferredString.await() // ClassCastException
  * ```
+ *
+ * @see TaskMap
  */
 inline fun <T> CoroutineScope.async(
       context: CoroutineContext = EmptyCoroutineContext,
@@ -123,12 +127,36 @@ inline fun <T> CoroutineScope.async(
 @Suppress("FunctionName")
 fun TaskMap(): TaskMap = TaskMapImpl()
 
+/**
+ * taskIdを管理するインスタンスです。概念的には `Map<Any, Job>` に近いです。
+ *
+ * launch、もしくはasyncにCoroutineContextとして渡すことで使用できます。
+ *
+ * ```kotlin
+ * val taskMap = TaskMap()
+ *
+ * launch(taskMap, taskId = id) {
+ * }
+ * ```
+ *
+ * 指定しなかった場合[GlobalTaskMap]が使われます。
+ */
 interface TaskMap : CoroutineContext.Element {
    companion object Key : CoroutineContext.Key<TaskMap>
 
    operator fun get(taskId: Any): Job?
    operator fun set(taskId: Any, job: Job)
    operator fun minusAssign(taskId: Any)
+}
+
+object GlobalTaskMap : TaskMap {
+   private val jobMap = HashMap<Any, Job>()
+
+   override val key get() = TaskMap
+
+   override fun get(taskId: Any): Job? = jobMap[taskId]
+   override fun set(taskId: Any, job: Job) { jobMap[taskId] = job }
+   override fun minusAssign(taskId: Any) { jobMap -= taskId }
 }
 
 private class TaskMapImpl : TaskMap {

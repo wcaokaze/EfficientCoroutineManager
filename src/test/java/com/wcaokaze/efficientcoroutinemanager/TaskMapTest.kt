@@ -256,4 +256,14 @@ class TaskMapTest {
 
       assertEquals(listOf(0, 1), results)
    }
+
+   // ==========================================================================
+
+   @Test fun TaskMapを省略するとGlobalTaskMapが使われる() {
+      runBlocking {
+         val job0 = launch(               taskId = 0) { delay(50L) }
+         val job1 = launch(GlobalTaskMap, taskId = 0) { delay(50L) }
+         assertSame(job0, job1)
+      }
+   }
 }
