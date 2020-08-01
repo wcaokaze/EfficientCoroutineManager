@@ -17,24 +17,11 @@
 package com.wcaokaze.efficient.coroutines
 
 import kotlinx.coroutines.*
-import java.util.concurrent.*
 import kotlin.concurrent.*
 import kotlin.coroutines.*
 
-/**
- * タスクを両端キューに追加するDispatcherです。
- *
- * [first]で両端キューの先頭に、[last]で両端キューの末尾にタスクを追加でき、
- * タスクは先頭から順に実行されます。
- */
-interface DequeDispatcher {
-   val first: CoroutineDispatcher
-   val last: CoroutineDispatcher
-}
-
-@Suppress("FunctionName")
-fun DequeDispatcher(workerThreadCount: Int = 3): DequeDispatcher = object : DequeDispatcher {
-   private val deque = LinkedBlockingDeque<Runnable>()
+abstract class PriorityDispatcher(workerThreadCount: Int = 3) {
+   private val priorityDeque = PriorityDeque()
 
    init {
       repeat (workerThreadCount) {
@@ -44,7 +31,7 @@ fun DequeDispatcher(workerThreadCount: Int = 3): DequeDispatcher = object : Dequ
                   // clear interruption status
                   Thread.interrupted()
 
-                  deque.takeFirst().run()
+                  priorityDeque.takeNextTask().run()
                } catch (e: Exception) {
                   // ignore
                }
@@ -53,15 +40,24 @@ fun DequeDispatcher(workerThreadCount: Int = 3): DequeDispatcher = object : Dequ
       }
    }
 
-   override val first: CoroutineDispatcher = object : CoroutineDispatcher() {
-      override fun dispatch(context: CoroutineContext, block: Runnable) {
-         deque.addFirst(block)
-      }
+   protected fun addNewDeque(): DequeDispatcher {
+      val deque = priorityDeque.addNewDeque()
+      return PriorityDequeDispatcher(deque)
    }
 
-   override val last: CoroutineDispatcher = object : CoroutineDispatcher() {
-      override fun dispatch(context: CoroutineContext, block: Runnable) {
-         deque.addLast(block)
+   private inner class PriorityDequeDispatcher(
+         private val taskDeque: PriorityDeque.TaskDeque
+   ) : DequeDispatcher {
+      override val first = object : CoroutineDispatcher() {
+         override fun dispatch(context: CoroutineContext, block: Runnable) {
+            taskDeque.addFirst(block)
+         }
+      }
+
+      override val last = object : CoroutineDispatcher() {
+         override fun dispatch(context: CoroutineContext, block: Runnable) {
+            taskDeque.addLast(block)
+         }
       }
    }
 }
