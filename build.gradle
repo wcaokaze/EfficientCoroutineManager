@@ -100,3 +100,89 @@ task javadocJar(type: Jar) {
 }
 
 javadocJar.dependsOn(dokka)
+
+final pomConfig = {
+    licenses {
+        license {
+            name 'The Apache Software License, Version 2.0'
+            url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+            distribution 'repo'
+        }
+    }
+
+    developers {
+        developer {
+            id 'wcaokaze'
+            name 'wcaokaze'
+            email 'wcaokaze@gmail.com'
+        }
+    }
+
+    scm {
+        url 'https://github.com/wcaokaze/EfficientCoroutines.git'
+        connection 'scm:git:https://github.com/wcaokaze/EfficientCoroutines.git'
+        developerConnection 'scm:git:https://github.com/wcaokaze/EfficientCoroutines.git'
+    }
+}
+
+publishing {
+    publications {
+        EfficientCoroutines(MavenPublication) {
+            groupId 'com.wcaokaze.efficientcoroutines'
+            artifactId 'efficientcoroutines'
+            version VERSION
+
+            artifact sourcesJar
+            artifact javadocJar
+            artifact "$buildDir/libs/EfficientCoroutines.jar"
+
+            pom.withXml {
+                final rootNode = asNode()
+
+                final dependenciesNode = rootNode['dependencies'][0]
+                        ?: rootNode.appendNode('dependencies')
+
+                rootNode.appendNode('name', 'EfficientCoroutines')
+
+                for (dependency in configurations.implementation.allDependencies) {
+                    if (dependency.name == 'unspecified') { continue }
+
+                    final dependencyNode = dependenciesNode.appendNode('dependency')
+                    dependencyNode.appendNode('groupId',    dependency.group)
+                    dependencyNode.appendNode('artifactId', dependency.name)
+                    dependencyNode.appendNode('version',    dependency.version)
+                }
+
+                rootNode.children().last() + pomConfig
+            }
+        }
+    }
+}
+
+publish.dependsOn(sourcesJar, javadocJar, jar)
+
+bintray {
+    final props = new Properties()
+    props.load(project.file('local.properties').newDataInputStream())
+
+    user = props.getProperty('bintray.user')
+    key = props.getProperty('bintray.apiKey')
+
+    publications = ['EfficientCoroutines']
+
+    pkg {
+        repo = 'maven'
+        name = 'EfficientCoroutines'
+        licenses = ['Apache-2.0']
+        vcsUrl = 'https://github.com/wcaokaze/EfficientCoroutines'
+
+        version {
+            name = VERSION
+            released = new Date()
+            vcsTag = "v$VERSION"
+        }
+    }
+}
+
+bintrayUpload.dependsOn(publish)
+
