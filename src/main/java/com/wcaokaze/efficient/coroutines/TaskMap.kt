@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.wcaokaze.efficientcoroutinemanager
+package com.wcaokaze.efficient.coroutines
 
 import kotlinx.coroutines.*
 import kotlin.coroutines.*
