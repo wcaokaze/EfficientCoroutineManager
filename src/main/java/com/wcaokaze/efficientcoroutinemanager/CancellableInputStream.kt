@@ -20,6 +20,18 @@ import java.io.*
 import kotlinx.coroutines.*
 import kotlin.coroutines.*
 
+/**
+ * キャンセル可能なInputStreamです。
+ *
+ * [read][InputStream.read]呼び出し時、指定したcoroutineContextをチェックして、
+ * コルーチンがキャンセルされている場合[CancellationException]をスローします。
+ *
+ * オーバーヘッド削減のため、このInputStreamをバッファリングすることが推奨されます。
+ * ```kotlin
+ * openInputStream().cancellable(coroutineContext).buffered().use { inputStream ->
+ * }
+ * ```
+ */
 fun InputStream.cancellable(coroutineContext: CoroutineContext)
       = CancellableInputStream(coroutineContext, this)
 
