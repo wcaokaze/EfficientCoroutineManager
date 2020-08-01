@@ -20,51 +20,49 @@ import kotlinx.coroutines.*
 import kotlin.coroutines.*
 
 /**
- * 指定したtaskIdのコルーチンがまだlaunchされていない場合、
- * もしくは過去にlaunchされたがすでに完了済みの場合、launchします。
- *
- * 指定したtaskIdのコルーチンがすでにlaunchされていて、実行中であるか、もしくは
- * いずれかのsuspendポイントで待機中、
- * もしくはまだ開始されていないが処理が予約されていて待機中である場合には
- * そのコルーチンのJobを返却します。
+ * 通常のlaunchと同様にコルーチンを起動しますが、
+ * このコルーチンが起動されてから実際に処理が始まるまでの間に、
+ * 同じtaskIdの他のコルーチンの処理がすでに始まってしまっていた場合、
+ * このコルーチンの処理は行わず、先に始まっていたコルーチンに
+ * [join][Job.join]します。
  *
  * 典型的にはGET系のネットワーク処理の重複を避けるために使いますが、taskIdとして
  * [java.net.URL]は使わないように注意してください。
  * [java.net.URLのequals](https://docs.oracle.com/javase/jp/8/docs/api/java/net/URL.html#equals-java.lang.Object-)
  * は、IPアドレスの解決を行うため、とんでもなく遅いです。
- *
- * @see TaskMap
  */
-inline fun CoroutineScope.launch(
+fun CoroutineScope.launch(
       context: CoroutineContext = EmptyCoroutineContext,
       start: CoroutineStart = CoroutineStart.DEFAULT,
+      taskMap: TaskMap = GlobalTaskMap,
       taskId: Any,
-      crossinline block: suspend CoroutineScope.() -> Unit
+      block: suspend CoroutineScope.() -> Unit
 ): Job {
-   val taskMap = context[TaskMap] ?: GlobalTaskMap
+   lateinit var job: Job
 
-   synchronized (taskMap) {
-      var job = taskMap[taskId]
-      if (job != null) { return job }
+   job = launch(context, start) {
+      val duplicatedTask = taskMap.setIfNotContained(taskId, job)
 
-      job = launch(context, start) {
+      if (duplicatedTask != null) {
+         duplicatedTask.join()
+      } else {
          block()
-         taskMap -= taskId
-      }
 
-      taskMap[taskId] = job
-      return job
+         synchronized (taskMap) {
+            taskMap -= taskId
+         }
+      }
    }
+
+   return job
 }
 
 /**
- * 指定したtaskIdのコルーチンがまだlaunchされていない場合、
- * もしくは過去にlaunchされたがすでに完了済みの場合、launchします。
- *
- * 指定したtaskIdのコルーチンがすでにlaunchされていて、実行中であるか、もしくは
- * いずれかのsuspendポイントで待機中、
- * もしくはまだ開始されていないが処理が予約されていて待機中である場合には
- * そのコルーチンのDeferredを返却します。
+ * 通常のasyncと同様にコルーチンを起動しますが、
+ * このコルーチンが起動されてから実際に処理が始まるまでの間に、
+ * 同じtaskIdの他のコルーチンの処理がすでに始まってしまっていた場合、
+ * このコルーチンの処理は行わず、先に始まっていたコルーチンを
+ * [await][Deferred.await]します。
  *
  * 典型的にはGET系のネットワーク処理の重複を避けるために使いますが、taskIdとして
  * [java.net.URL]は使わないように注意してください。
@@ -79,48 +77,58 @@ inline fun CoroutineScope.launch(
  *
  * val string = deferredString.await() // ClassCastException
  * ```
- *
- * @see TaskMap
  */
-inline fun <T> CoroutineScope.async(
+fun <T> CoroutineScope.async(
       context: CoroutineContext = EmptyCoroutineContext,
       start: CoroutineStart = CoroutineStart.DEFAULT,
+      taskMap: TaskMap = GlobalTaskMap,
       taskId: Any,
-      crossinline block: suspend CoroutineScope.() -> T
+      block: suspend CoroutineScope.() -> T
 ): Deferred<T> {
-   val taskMap = context[TaskMap]!!
+   lateinit var deferred: Deferred<T>
 
-   synchronized (taskMap) {
-      val job = taskMap[taskId]
+   deferred = async(context, start) {
+      val duplicatedTask = taskMap.setIfNotContained(taskId, deferred)
 
-      if (job is Deferred<*>) {
-         @Suppress("UNCHECKED_CAST")
-         return job as Deferred<T>
-      }
-
-      if (job != null) {
-         val deferred = CompletableDeferred<Any?>()
-
-         job.invokeOnCompletion { exception ->
-            if (exception == null) {
-               deferred.complete(Unit)
-            } else {
-               deferred.completeExceptionally(exception)
-            }
+      when {
+         duplicatedTask is Deferred<*> -> {
+            @Suppress("UNCHECKED_CAST")
+            duplicatedTask.await() as T
          }
 
-         @Suppress("UNCHECKED_CAST")
-         return deferred as Deferred<T>
-      }
+         duplicatedTask != null -> {
+            duplicatedTask.join()
 
-      val deferred = async(context, start) {
-         val r = block()
-         taskMap -= taskId
-         r
-      }
+            @Suppress("UNCHECKED_CAST")
+            Unit as T
+         }
 
-      taskMap[taskId] = deferred
-      return deferred
+         else -> {
+            val r = block()
+
+            synchronized (taskMap) {
+               taskMap -= taskId
+            }
+
+            r
+         }
+      }
+   }
+
+   return deferred
+}
+
+/**
+ * 指定したtaskIdのJobがすでにこのTaskMapに存在する場合それを返します。
+ *
+ * そうでなければこのTaskMapに指定したjobをセットし、nullを返します。
+ */
+private fun TaskMap.setIfNotContained(taskId: Any, job: Job): Job? {
+   synchronized (this) {
+      val task = this[taskId]
+      if (task != null) { return task }
+      this[taskId] = job
+      return null
    }
 }
 
@@ -129,21 +137,8 @@ fun TaskMap(): TaskMap = TaskMapImpl()
 
 /**
  * taskIdを管理するインスタンスです。概念的には `Map<Any, Job>` に近いです。
- *
- * launch、もしくはasyncにCoroutineContextとして渡すことで使用できます。
- *
- * ```kotlin
- * val taskMap = TaskMap()
- *
- * launch(taskMap, taskId = id) {
- * }
- * ```
- *
- * 指定しなかった場合[GlobalTaskMap]が使われます。
  */
-interface TaskMap : CoroutineContext.Element {
-   companion object Key : CoroutineContext.Key<TaskMap>
-
+interface TaskMap {
    operator fun get(taskId: Any): Job?
    operator fun set(taskId: Any, job: Job)
    operator fun minusAssign(taskId: Any)
@@ -152,8 +147,6 @@ interface TaskMap : CoroutineContext.Element {
 object GlobalTaskMap : TaskMap {
    private val jobMap = HashMap<Any, Job>()
 
-   override val key get() = TaskMap
-
    override fun get(taskId: Any): Job? = jobMap[taskId]
    override fun set(taskId: Any, job: Job) { jobMap[taskId] = job }
    override fun minusAssign(taskId: Any) { jobMap -= taskId }
@@ -161,8 +154,6 @@ object GlobalTaskMap : TaskMap {
 
 private class TaskMapImpl : TaskMap {
    private val jobMap = HashMap<Any, Job>()
-
-   override val key get() = TaskMap
 
    override fun get(taskId: Any): Job? = jobMap[taskId]
    override fun set(taskId: Any, job: Job) { jobMap[taskId] = job }
