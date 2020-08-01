@@ -20,6 +20,28 @@ import kotlinx.coroutines.*
 import kotlin.concurrent.*
 import kotlin.coroutines.*
 
+/**
+ * 複数の[DequeDispatcher]を結合したDispatcherです。
+ *
+ * このクラスを継承し、[addNewDeque]で[DequeDispatcher]をインスタンス化してください。
+ * ```kotlin
+ * class MyDispatcher : PriorityDispatcher() {
+ *    val first  = addNewDeque()
+ *    val second = addNewDeque()
+ * }
+ * ```
+ *
+ * PriorityDispatcherの内部で下記のようにタスク管理が行われ、先頭から実行されます。
+ * ```
+ * [
+ *    [], // first
+ *    []  // second
+ * ]
+ * ```
+ * 優先度の低いバックグラウンドのダウンロード処理は `launch(second.last)` で行い、
+ * アプリのユーザーを待機させてしまうようなクリティカルな処理は
+ * `launch(first.last)` で先に実行させるというような使い方ができますね。
+ */
 abstract class PriorityDispatcher(workerThreadCount: Int = 3) {
    private val priorityDeque = PriorityDeque()
 
