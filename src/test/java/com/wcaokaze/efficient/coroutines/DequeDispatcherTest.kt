@@ -104,4 +104,33 @@ class DequeDispatcherTest {
          assertEquals("例外です", exception.message)
       }
    }
+
+   @Suppress("BlockingMethodInNonBlockingContext")
+   @Test fun workerThread() {
+      val dequeDispatcher = DequeDispatcher(workerThreadCount = 5)
+
+      fun test() {
+         val startTime = System.currentTimeMillis()
+         val dispatchedTime = Collections.synchronizedList(LinkedList<Long>())
+
+         runBlocking {
+            launch(dequeDispatcher.last)  { dispatchedTime += System.currentTimeMillis() - startTime; Thread.sleep(150L) }
+            launch(dequeDispatcher.first) { dispatchedTime += System.currentTimeMillis() - startTime; Thread.sleep(150L) }
+            launch(dequeDispatcher.last)  { dispatchedTime += System.currentTimeMillis() - startTime; Thread.sleep(150L) }
+            launch(dequeDispatcher.first) { dispatchedTime += System.currentTimeMillis() - startTime; Thread.sleep(150L) }
+            launch(dequeDispatcher.last)  { dispatchedTime += System.currentTimeMillis() - startTime; Thread.sleep(150L) }
+            launch(dequeDispatcher.first) { dispatchedTime += System.currentTimeMillis() - startTime; Thread.sleep(150L) }
+         }
+
+         for (t in dispatchedTime.take(5)) {
+            assertTrue(t < 150L)
+         }
+
+         assertTrue(dispatchedTime[5] > 150L)
+      }
+
+      test()
+      Thread.sleep(300L) // 一旦タスクを空にしてworkerThreadをwaitに入れさせる
+      test()
+   }
 }

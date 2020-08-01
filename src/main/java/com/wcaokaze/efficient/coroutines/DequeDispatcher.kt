@@ -26,11 +26,14 @@ import kotlin.coroutines.*
  *
  * [first]で両端キューの先頭に、[last]で両端キューの末尾にタスクを追加でき、
  * タスクは先頭から順に実行されます。
- *
- * @param workerThreadCount
- *   両端キューに追加されたタスクを実行するためのスレッドの数
  */
-class DequeDispatcher(workerThreadCount: Int = 3) {
+interface DequeDispatcher {
+   val first: CoroutineDispatcher
+   val last: CoroutineDispatcher
+}
+
+@Suppress("FunctionName")
+fun DequeDispatcher(workerThreadCount: Int = 3): DequeDispatcher = object : DequeDispatcher {
    private val deque = LinkedBlockingDeque<Runnable>()
 
    init {
@@ -50,13 +53,13 @@ class DequeDispatcher(workerThreadCount: Int = 3) {
       }
    }
 
-   val first: CoroutineDispatcher = object : CoroutineDispatcher() {
+   override val first: CoroutineDispatcher = object : CoroutineDispatcher() {
       override fun dispatch(context: CoroutineContext, block: Runnable) {
          deque.addFirst(block)
       }
    }
 
-   val last: CoroutineDispatcher = object : CoroutineDispatcher() {
+   override val last: CoroutineDispatcher = object : CoroutineDispatcher() {
       override fun dispatch(context: CoroutineContext, block: Runnable) {
          deque.addLast(block)
       }
