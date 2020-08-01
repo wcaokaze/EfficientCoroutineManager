@@ -31,8 +31,8 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         launch(taskMap, taskId = 0) { results += 0 }
-         launch(taskMap, taskId = 1) { results += 1 }
+         launch(taskMap = taskMap, taskId = 0) { results += 0 }
+         launch(taskMap = taskMap, taskId = 1) { results += 1 }
       }
 
       assertEquals(listOf(0, 1), results)
@@ -44,8 +44,8 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         val deferred0 = async(taskMap, taskId = 0) { results += 0 }
-         val deferred1 = async(taskMap, taskId = 1) { results += 1 }
+         val deferred0 = async(taskMap = taskMap, taskId = 0) { results += 0 }
+         val deferred1 = async(taskMap = taskMap, taskId = 1) { results += 1 }
          joinAll(deferred0, deferred1)
       }
 
@@ -58,8 +58,8 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         val job      = launch(taskMap, taskId = 0) { results += 0 }
-         val deferred = async (taskMap, taskId = 1) { results += 1 }
+         val job      = launch(taskMap = taskMap, taskId = 0) { results += 0 }
+         val deferred = async (taskMap = taskMap, taskId = 1) { results += 1 }
          joinAll(job, deferred)
       }
 
@@ -68,17 +68,25 @@ class TaskMapTest {
 
    // ==========================================================================
 
-   @Test fun 重複あり_先にlaunchした方のみ実行() {
+   @Test fun 重複あり_先にdispatchされた方のみ実行() {
       val results = LinkedList<Int>()
 
       runBlocking {
+         val dispatcher = DequeDispatcher(workerThreadCount = 1)
          val taskMap = TaskMap()
 
-         launch(taskMap, taskId = 0) { results += 0; delay(50L) }
-         launch(taskMap, taskId = 0) { results += 1; delay(50L) }
+         launch(dispatcher.first) {
+            @Suppress("BlockingMethodInNonBlockingContext")
+            Thread.sleep(300L)
+         }
+
+         launch(dispatcher.first, taskMap = taskMap, taskId = 0) { results += 0; delay(50L) }
+         launch(dispatcher.first, taskMap = taskMap, taskId = 0) { results += 1; delay(50L) }
+         launch(dispatcher.last,  taskMap = taskMap, taskId = 1) { results += 2; delay(50L) }
+         launch(dispatcher.last,  taskMap = taskMap, taskId = 1) { results += 3; delay(50L) }
       }
 
-      assertEquals(listOf(0), results)
+      assertEquals(listOf(1, 2), results)
    }
 
    @Test fun taskIdが重複しててもTaskMapが違ったら実行される() {
@@ -88,8 +96,8 @@ class TaskMapTest {
          val taskMap0 = TaskMap()
          val taskMap1 = TaskMap()
 
-         launch(taskMap0, taskId = 0) { results += 0; delay(50L) }
-         launch(taskMap1, taskId = 0) { results += 1; delay(50L) }
+         launch(taskMap = taskMap0, taskId = 0) { results += 0; delay(50L) }
+         launch(taskMap = taskMap1, taskId = 0) { results += 1; delay(50L) }
       }
 
       assertEquals(listOf(0, 1), results)
@@ -101,37 +109,28 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         val deferred0 = async(taskMap, taskId = 0) { results += 0; delay(50L) }
-         val deferred1 = async(taskMap, taskId = 0) { results += 1; delay(50L) }
+         val deferred0 = async(taskMap = taskMap, taskId = 0) { results += 0; delay(50L) }
+         val deferred1 = async(taskMap = taskMap, taskId = 0) { results += 1; delay(50L) }
          joinAll(deferred0, deferred1)
       }
 
       assertEquals(listOf(0), results)
    }
 
-   @Test fun 重複あり_二回目以降は一回目のJobを返す() {
+   @Test fun 重複あり_async_二回目以降は一回目のDeferredをawaitする() {
       runBlocking {
          val taskMap = TaskMap()
 
-         val job0 = launch(taskMap, taskId = 0) { delay(50L) }
-         val job1 = launch(taskMap, taskId = 0) { delay(50L) }
-         val job2 = launch(taskMap, taskId = 0) { delay(50L) }
+         val deferred0 = async(taskMap = taskMap, taskId = 0) { delay(50L); Any() }
+         val deferred1 = async(taskMap = taskMap, taskId = 0) { delay(50L); Any() }
+         val deferred2 = async(taskMap = taskMap, taskId = 0) { delay(50L); Any() }
 
-         assertSame(job0, job1)
-         assertSame(job0, job2)
-      }
-   }
+         val any0 = deferred0.await()
+         val any1 = deferred1.await()
+         val any2 = deferred2.await()
 
-   @Test fun 重複あり_async_二回目以降は一回目のDeferredを返す() {
-      runBlocking {
-         val taskMap = TaskMap()
-
-         val deferred0 = async(taskMap, taskId = 0) { delay(50L) }
-         val deferred1 = async(taskMap, taskId = 0) { delay(50L) }
-         val deferred2 = async(taskMap, taskId = 0) { delay(50L) }
-
-         assertSame(deferred0, deferred1)
-         assertSame(deferred0, deferred2)
+         assertSame(any0, any1)
+         assertSame(any0, any2)
       }
    }
 
@@ -139,12 +138,12 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         val deferred = async (taskMap, taskId = 0) { delay(50L) }
-         val job      = launch(taskMap, taskId = 0) { delay(50L) }
+         val deferred = async (taskMap = taskMap, taskId = 0) { delay(50L) }
+         val job      = launch(taskMap = taskMap, taskId = 0) { delay(50L) }
 
          assertTrue(deferred.isActive)
          assertTrue(job.isActive)
-         deferred.join()
+         job.join()
          assertFalse(deferred.isActive)
          assertFalse(job.isActive)
       }
@@ -154,8 +153,8 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         val job      = launch(taskMap, taskId = 0) { delay(50L) }
-         val deferred = async (taskMap, taskId = 0) { delay(50L) }
+         val job      = launch(taskMap = taskMap, taskId = 0) { delay(50L) }
+         val deferred = async (taskMap = taskMap, taskId = 0) { delay(50L) }
 
          assertTrue(deferred.isActive)
          assertTrue(job.isActive)
@@ -169,8 +168,8 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         val deferred = async (taskMap, taskId = 0) { delay(50L) }
-         val job      = launch(taskMap, taskId = 0) { delay(50L) }
+         val deferred = async (taskMap = taskMap, taskId = 0) { delay(50L) }
+         val job      = launch(taskMap = taskMap, taskId = 0) { delay(50L) }
 
          assertTrue(deferred.isActive)
          assertTrue(job.isActive)
@@ -184,8 +183,8 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         val job      = launch(taskMap, taskId = 0) { delay(50L) }
-         val deferred = async (taskMap, taskId = 0) { delay(50L) }
+         val job      = launch(taskMap = taskMap, taskId = 0) { delay(50L) }
+         val deferred = async (taskMap = taskMap, taskId = 0) { delay(50L) }
 
          assertTrue(deferred.isActive)
          assertTrue(job.isActive)
@@ -200,8 +199,8 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         launch(taskMap, taskId = 0) { delay(50L) }
-         val deferred = async(taskMap, taskId = 0) { delay(50L); 3 }
+         launch(taskMap = taskMap, taskId = 0) { delay(50L) }
+         val deferred = async(taskMap = taskMap, taskId = 0) { delay(50L); 3 }
 
          assertFailsWith<ClassCastException> {
             // コンパイラにキャストを挿入させるためにawaitの返り値を使う必要がある
@@ -215,8 +214,8 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         val deferred0 = async(taskMap, taskId = 0) { delay(50L); "" }
-         val deferred1 = async(taskMap, taskId = 0) { delay(50L); 3 }
+         val deferred0 = async(taskMap = taskMap, taskId = 0) { delay(50L); "" }
+         val deferred1 = async(taskMap = taskMap, taskId = 0) { delay(50L); 3 }
 
          assertFailsWith<ClassCastException> {
             // コンパイラにキャストを挿入させるためにawaitの返り値を使う必要がある
@@ -234,9 +233,9 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         val job = launch(taskMap, taskId = 0) { results += 0 }
+         val job = launch(taskMap = taskMap, taskId = 0) { results += 0 }
          job.join()
-         launch(taskMap, taskId = 0) { results += 1 }
+         launch(taskMap = taskMap, taskId = 0) { results += 1 }
       }
 
       assertEquals(listOf(0, 1), results)
@@ -248,22 +247,12 @@ class TaskMapTest {
       runBlocking {
          val taskMap = TaskMap()
 
-         val deferred0 = async(taskMap, taskId = 0) { results += 0 }
+         val deferred0 = async(taskMap = taskMap, taskId = 0) { results += 0 }
          deferred0.join()
-         val deferred1 = async(taskMap, taskId = 0) { results += 1 }
+         val deferred1 = async(taskMap = taskMap, taskId = 0) { results += 1 }
          deferred1.join()
       }
 
       assertEquals(listOf(0, 1), results)
-   }
-
-   // ==========================================================================
-
-   @Test fun TaskMapを省略するとGlobalTaskMapが使われる() {
-      runBlocking {
-         val job0 = launch(               taskId = 0) { delay(50L) }
-         val job1 = launch(GlobalTaskMap, taskId = 0) { delay(50L) }
-         assertSame(job0, job1)
-      }
    }
 }
