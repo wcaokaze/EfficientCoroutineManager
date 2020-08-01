@@ -25,7 +25,9 @@ import java.util.*
 
 @RunWith(JUnit4::class)
 class PriorityDispatcherTest {
-   private class PriorityDispatcherImpl : PriorityDispatcher(workerThreadCount = 1) {
+   private class PriorityDispatcherImpl(workerThreadCount: Int)
+         : PriorityDispatcher(workerThreadCount)
+   {
       val dispatcher1 = addNewDeque()
       val dispatcher2 = addNewDeque()
       val dispatcher3 = addNewDeque()
@@ -34,7 +36,7 @@ class PriorityDispatcherTest {
    private inline fun test(
          crossinline action: suspend CoroutineScope.(PriorityDispatcherImpl) -> Unit
    ) {
-      val priorityDispatcher = PriorityDispatcherImpl()
+      val priorityDispatcher = PriorityDispatcherImpl(workerThreadCount = 1)
 
       runBlocking {
          // action内でlaunchしたコルーチンが即発火されないように
@@ -118,5 +120,34 @@ class PriorityDispatcherTest {
             listOf(6, 0, 1, 7, 8, 2, 3, 9, 10, 4, 5, 11),
             results
       )
+   }
+
+   @Suppress("BlockingMethodInNonBlockingContext")
+   @Test fun workerThread() {
+      val priorityDispatcher = PriorityDispatcherImpl(workerThreadCount = 5)
+
+      fun test() {
+         val startTime = System.currentTimeMillis()
+         val dispatchedTime = Collections.synchronizedList(LinkedList<Long>())
+
+         runBlocking {
+            launch(priorityDispatcher.dispatcher3.last)  { dispatchedTime += System.currentTimeMillis() - startTime; Thread.sleep(150L) }
+            launch(priorityDispatcher.dispatcher3.first) { dispatchedTime += System.currentTimeMillis() - startTime; Thread.sleep(150L) }
+            launch(priorityDispatcher.dispatcher2.last)  { dispatchedTime += System.currentTimeMillis() - startTime; Thread.sleep(150L) }
+            launch(priorityDispatcher.dispatcher2.first) { dispatchedTime += System.currentTimeMillis() - startTime; Thread.sleep(150L) }
+            launch(priorityDispatcher.dispatcher1.last)  { dispatchedTime += System.currentTimeMillis() - startTime; Thread.sleep(150L) }
+            launch(priorityDispatcher.dispatcher1.first) { dispatchedTime += System.currentTimeMillis() - startTime; Thread.sleep(150L) }
+         }
+
+         for (t in dispatchedTime.take(5)) {
+            assertTrue(t < 150L)
+         }
+
+         assertTrue(dispatchedTime[5] > 150L)
+      }
+
+      test()
+      Thread.sleep(300L) // 一旦タスクを空にしてworkerThreadをwaitに入れさせる
+      test()
    }
 }
