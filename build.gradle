@@ -69,7 +69,7 @@ dokka {
     outputDirectory = "$buildDir/docs"
 
     configuration {
-        moduleName = 'EfficientCoroutineManager'
+        moduleName = 'EfficientCoroutines'
 
         includes = ['src/main/java/packages.md']
         jdkVersion = 6
@@ -79,7 +79,7 @@ dokka {
 
         sourceLink {
             path = "src/main/java"
-            url = 'http://github.com/wcaokaze/EfficientCoroutineManager/blob/master/src/main/java'
+            url = 'http://github.com/wcaokaze/EfficientCoroutines/blob/master/src/main/java'
             lineSuffix = '#L'
         }
 
