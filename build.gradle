@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-final VERSION = '0.7.0'
+final VERSION = '0.0.0'
 
 buildscript {
     ext.kotlin_version = '1.3.72'
@@ -32,11 +32,15 @@ buildscript {
     }
 }
 
+apply plugin: 'java'
 apply plugin: 'kotlin'
 apply plugin: 'org.jetbrains.dokka'
 
 apply plugin: 'maven-publish'
 apply plugin: 'com.jfrog.bintray'
+
+sourceCompatibility = 1.6
+targetCompatibility = 1.6
 
 repositories {
     google()
@@ -46,11 +50,10 @@ repositories {
 
 dependencies {
     compileOnly 'org.jetbrains.kotlin:kotlin-stdlib'
-    compileOnly 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.3.3'
+    api 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.3.3'
 
-    testImplementation 'junit:junit:4.12'
+    testImplementation "org.jetbrains.kotlin:kotlin-test-junit:$kotlin_version"
     testImplementation 'org.jetbrains.kotlin:kotlin-stdlib'
-    testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.0.0'
 }
 
 compileKotlin {
@@ -66,7 +69,7 @@ dokka {
     outputDirectory = "$buildDir/docs"
 
     configuration {
-        moduleName = 'EfficientCoroutineManager'
+        moduleName = 'EfficientCoroutines'
 
         includes = ['src/main/java/packages.md']
         jdkVersion = 6
@@ -76,7 +79,7 @@ dokka {
 
         sourceLink {
             path = "src/main/java"
-            url = 'http://github.com/wcaokaze/EfficientCoroutineManager/blob/master/src/main/java'
+            url = 'http://github.com/wcaokaze/EfficientCoroutines/blob/master/src/main/java'
             lineSuffix = '#L'
         }
 
@@ -116,22 +119,22 @@ final pomConfig = {
     }
 
     scm {
-        url 'https://github.com/wcaokaze/EfficientCoroutineManager.git'
-        connection 'scm:git:https://github.com/wcaokaze/EfficientCoroutineManager.git'
-        developerConnection 'scm:git:https://github.com/wcaokaze/EfficientCoroutineManager.git'
+        url 'https://github.com/wcaokaze/EfficientCoroutines.git'
+        connection 'scm:git:https://github.com/wcaokaze/EfficientCoroutines.git'
+        developerConnection 'scm:git:https://github.com/wcaokaze/EfficientCoroutines.git'
     }
 }
 
 publishing {
     publications {
-        EfficientCoroutineManager(MavenPublication) {
-            groupId 'com.wcaokaze.efficientcoroutinemanager'
-            artifactId 'efficientcoroutinemanager'
+        EfficientCoroutines(MavenPublication) {
+            groupId 'com.wcaokaze.efficientcoroutines'
+            artifactId 'efficientcoroutines'
             version VERSION
 
             artifact sourcesJar
             artifact javadocJar
-            artifact "$buildDir/libs/EfficientCoroutineManager.jar"
+            artifact "$buildDir/libs/EfficientCoroutines.jar"
 
             pom.withXml {
                 final rootNode = asNode()
@@ -139,7 +142,7 @@ publishing {
                 final dependenciesNode = rootNode['dependencies'][0]
                         ?: rootNode.appendNode('dependencies')
 
-                rootNode.appendNode('name', 'EfficientCoroutineManager')
+                rootNode.appendNode('name', 'EfficientCoroutines')
 
                 for (dependency in configurations.implementation.allDependencies) {
                     if (dependency.name == 'unspecified') { continue }
@@ -165,13 +168,13 @@ bintray {
     user = props.getProperty('bintray.user')
     key = props.getProperty('bintray.apiKey')
 
-    publications = ['EfficientCoroutineManager']
+    publications = ['EfficientCoroutines']
 
     pkg {
         repo = 'maven'
-        name = 'EfficientCoroutineManager'
+        name = 'EfficientCoroutines'
         licenses = ['Apache-2.0']
-        vcsUrl = 'https://github.com/wcaokaze/EfficientCoroutineManager'
+        vcsUrl = 'https://github.com/wcaokaze/EfficientCoroutines'
 
         version {
             name = VERSION
@@ -182,3 +185,4 @@ bintray {
 }
 
 bintrayUpload.dependsOn(publish)
+
