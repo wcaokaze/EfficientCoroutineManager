@@ -17,6 +17,7 @@
 package com.wcaokaze.efficient.coroutines
 
 import kotlinx.coroutines.*
+import java.util.*
 import kotlin.coroutines.*
 
 /**
@@ -30,29 +31,80 @@ import kotlin.coroutines.*
  * [java.net.URL]は使わないように注意してください。
  * [java.net.URLのequals](https://docs.oracle.com/javase/jp/8/docs/api/java/net/URL.html#equals-java.lang.Object-)
  * は、IPアドレスの解決を行うため、とんでもなく遅いです。
+ *
+ * ## タイミング詳細
+ * launch呼び出しのタイミングを *L* 、
+ * 実際にコルーチンの実行が開始される(≒最初のdispatch)タイミングを *D* 、
+ * 処理が終わるタイミングを *F* とすると
+ *
+ * ### 処理が省略されるパターン
+ * L〜Dの間に他のコルーチンのD〜Fが実行された場合です。
+ * ```
+ * L---------D------F
+ *    L--D==========F
+ * ```
+ * ```
+ * L---------------DF
+ *    L--D======F
+ * ```
+ * ```
+ *      L-------D------F
+ * L--------D==========F
+ * ```
+ * ```
+ *    L---------DF
+ * L----D=====F
+ * ```
+ * ```
+ *      L-------D---F
+ * L--D=============F
+ * ```
+ * ```
+ *      L-------DF
+ * L--D=====F
+ * ```
+ *
+ * ### 通常通り処理されるパターン
+ * 同じtaskIdのコルーチンが他に存在しない場合か、
+ * 他のコルーチンのDより先にこちらのDが発生した場合か、
+ * こちらのLの時点ですでに他のコルーチンのFが終わっている場合です。
+ * ```
+ * L--------D==========F
+ *      L-------D------F
+ * ```
+ * ```
+ *    L--D==========F
+ * L---------D------F
+ * ```
+ * ```
+ *           L--D====F
+ * L--D====F
+ * ```
  */
 fun CoroutineScope.launch(
       context: CoroutineContext = EmptyCoroutineContext,
       start: CoroutineStart = CoroutineStart.DEFAULT,
-      taskMap: TaskMap = GlobalTaskMap,
+      taskMap: TaskMap = globalTaskMap,
       taskId: Any,
       block: suspend CoroutineScope.() -> Unit
 ): Job {
    lateinit var job: Job
 
-   job = launch(context, start) {
-      val duplicatedTask = taskMap.setIfNotContained(taskId, job)
+   val launchedTime = System.currentTimeMillis()
 
-      if (duplicatedTask != null) {
-         duplicatedTask.join()
+   job = launch(context, start) {
+      val activeTask = taskMap.onTaskActive(taskId, job, launchedTime)
+
+      if (activeTask != null) {
+         activeTask.join()
       } else {
          block()
-
-         synchronized (taskMap) {
-            taskMap -= taskId
-         }
       }
+
+      taskMap.onTaskFinished(taskId, job)
    }
+
+   taskMap.addScheduledJob(taskId, job)
 
    return job
 }
@@ -81,81 +133,116 @@ fun CoroutineScope.launch(
 fun <T> CoroutineScope.async(
       context: CoroutineContext = EmptyCoroutineContext,
       start: CoroutineStart = CoroutineStart.DEFAULT,
-      taskMap: TaskMap = GlobalTaskMap,
+      taskMap: TaskMap = globalTaskMap,
       taskId: Any,
       block: suspend CoroutineScope.() -> T
 ): Deferred<T> {
    lateinit var deferred: Deferred<T>
 
-   deferred = async(context, start) {
-      val duplicatedTask = taskMap.setIfNotContained(taskId, deferred)
+   val launchedTime = System.currentTimeMillis()
 
-      when {
-         duplicatedTask is Deferred<*> -> {
+   deferred = async(context, start) {
+      val activeTask = taskMap.onTaskActive(taskId, deferred, launchedTime)
+
+      val r = when {
+         activeTask is Deferred<*> -> {
             @Suppress("UNCHECKED_CAST")
-            duplicatedTask.await() as T
+            activeTask.await() as T
          }
 
-         duplicatedTask != null -> {
-            duplicatedTask.join()
+         activeTask != null -> {
+            activeTask.join()
 
             @Suppress("UNCHECKED_CAST")
             Unit as T
          }
 
          else -> {
-            val r = block()
-
-            synchronized (taskMap) {
-               taskMap -= taskId
-            }
-
-            r
+            block()
          }
       }
+
+      taskMap.onTaskFinished(taskId, deferred)
+
+      r
    }
+
+   taskMap.addScheduledJob(taskId, deferred)
 
    return deferred
 }
 
-/**
- * 指定したtaskIdのJobがすでにこのTaskMapに存在する場合それを返します。
- *
- * そうでなければこのTaskMapに指定したjobをセットし、nullを返します。
- */
-private fun TaskMap.setIfNotContained(taskId: Any, job: Job): Job? {
-   synchronized (this) {
-      val task = this[taskId]
-      if (task != null) { return task }
-      this[taskId] = job
-      return null
-   }
-}
-
-@Suppress("FunctionName")
-fun TaskMap(): TaskMap = TaskMapImpl()
+val globalTaskMap = TaskMap()
 
 /**
  * taskIdを管理するインスタンスです。概念的には `Map<Any, Job>` に近いです。
  */
-interface TaskMap {
-   operator fun get(taskId: Any): Job?
-   operator fun set(taskId: Any, job: Job)
-   operator fun minusAssign(taskId: Any)
+class TaskMap {
+   private val tasks = HashMap<Any, Task>()
+
+   @Synchronized
+   internal fun addScheduledJob(taskId: Any, job: Job) {
+      var task = tasks[taskId]
+
+      if (task == null) {
+         task = Task(Task.State.Scheduled(System.currentTimeMillis()))
+         tasks[taskId] = task
+      }
+
+      task.jobs += job
+   }
+
+   /**
+    * @return すでにActiveなタスクが存在する場合そのJob
+    */
+   @Synchronized
+   internal fun onTaskActive(taskId: Any, job: Job, launchedTime: Long): Job? {
+      val task = tasks[taskId] ?: return null
+
+      val state = task.state
+
+      return when {
+         state is Task.State.Active
+               -> state.job
+
+         state is Task.State.Finished && task.state.time > launchedTime
+               -> state.job
+
+         else -> {
+            task.state = Task.State.Active(System.currentTimeMillis(), job)
+            null
+         }
+      }
+   }
+
+   @Synchronized
+   internal fun onTaskFinished(taskId: Any, job: Job) {
+      val task = tasks[taskId] ?: return
+
+      task.jobs -= job
+
+      if (task.jobs.isEmpty()) {
+         tasks -= taskId
+         return
+      }
+
+      if ((task.state as? Task.State.Active)?.job == job) {
+         task.state = Task.State.Finished(System.currentTimeMillis(), job)
+      }
+   }
 }
 
-object GlobalTaskMap : TaskMap {
-   private val jobMap = HashMap<Any, Job>()
+internal class Task(var state: State) {
+   val jobs: MutableList<Job> = LinkedList()
 
-   override fun get(taskId: Any): Job? = jobMap[taskId]
-   override fun set(taskId: Any, job: Job) { jobMap[taskId] = job }
-   override fun minusAssign(taskId: Any) { jobMap -= taskId }
-}
+   sealed class State(val time: Long) {
+      /** launchされたがまだ実行されていない */
+      class Scheduled(time: Long) : State(time)
 
-private class TaskMapImpl : TaskMap {
-   private val jobMap = HashMap<Any, Job>()
+      /** 実行中。suspendポイントで待機中の状態も含む */
+      class Active(time: Long, val job: Job) : State(time)
 
-   override fun get(taskId: Any): Job? = jobMap[taskId]
-   override fun set(taskId: Any, job: Job) { jobMap[taskId] = job }
-   override fun minusAssign(taskId: Any) { jobMap -= taskId }
+      /** 完了済み */
+      class Finished(time: Long, val job: Job) : State(time)
+   }
 }
