@@ -126,7 +126,7 @@ class DequeDispatcherTest {
             assertTrue(t < 150L)
          }
 
-         assertTrue(dispatchedTime[5] > 150L)
+         assertTrue(dispatchedTime[5] >= 150L)
       }
 
       test()

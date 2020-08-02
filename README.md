@@ -82,6 +82,47 @@ launch(NetworkDispatcher.background.first) {
 とても簡単に実現できますよね。
 
 
+TaskId
+--------------------------------------------------------------------------------
+
+先ほどのシナリオを考えてみるとですね、
+バックグラウンドでの画像のダウンロードをlaunchしたものの
+他のタスクが多すぎてなかなかそれが実行されず、
+先にユーザーが画像をタップしてきて優先タスクとして画像のダウンロードがlaunchされる、
+というケースがあり得ます。
+
+擬似コードで言うとこんな感じでしょうか
+```kotlin
+launch(NetworkDispatcher.background.last) {
+   // 画像のダウンロード
+}
+
+launch(NetworkDispatcher.critical.last) {
+   // 画像のダウンロード
+}
+```
+この場合何が起こるかおわかりでしょうか？
+
+`critical` でのダウンロードが終わった後に
+`background` でのダウンロード処理がまた始まってしまうんですね。
+
+そんなもん当然避けたい。なんとしてでも避けたいわけですから、taskIdを指定しましょう。
+```kotlin
+launch(NetworkDispatcher.background.last, taskId = 画像のURL) {
+   // 画像のダウンロード
+}
+
+launch(NetworkDispatcher.critical.last, taskId = 画像のURL) {
+   // 画像のダウンロード
+}
+```
+重複するタスクは二回目以降実行されなくなります。
+
+厳密な動作はちょっとややこしいので
+[KDoc](https://github.com/wcaokaze/EfficientCoroutines/blob/master/src/main/java/com/wcaokaze/efficient/coroutines/TaskMap.kt)
+を見てください。
+
+
 インストール
 --------------------------------------------------------------------------------
 
@@ -92,7 +133,7 @@ repositories {
 }
 
 dependencies {
-   implementation 'com.wcaokaze.efficientcoroutines:efficientcoroutines:0.0.0'
+   implementation 'com.wcaokaze.efficientcoroutines:efficientcoroutines:0.0.1'
 }
 ```
 
@@ -103,7 +144,7 @@ repositories {
 }
 
 dependencies {
-   implementation("com.wcaokaze.efficientcoroutines:efficientcoroutines:0.0.0")
+   implementation("com.wcaokaze.efficientcoroutines:efficientcoroutines:0.0.1")
 }
 ```
 
