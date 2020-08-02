@@ -133,7 +133,7 @@ repositories {
 }
 
 dependencies {
-   implementation 'com.wcaokaze.efficientcoroutines:efficientcoroutines:0.0.0'
+   implementation 'com.wcaokaze.efficientcoroutines:efficientcoroutines:0.0.1'
 }
 ```
 
@@ -144,7 +144,7 @@ repositories {
 }
 
 dependencies {
-   implementation("com.wcaokaze.efficientcoroutines:efficientcoroutines:0.0.0")
+   implementation("com.wcaokaze.efficientcoroutines:efficientcoroutines:0.0.1")
 }
 ```
 
