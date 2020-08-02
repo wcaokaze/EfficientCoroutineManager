@@ -21,6 +21,7 @@ import org.junit.runners.*
 import kotlin.test.*
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.*
 import java.util.*
 
 @RunWith(JUnit4::class)
@@ -251,6 +252,120 @@ class TaskMapTest {
          deferred0.join()
          val deferred1 = async(taskMap = taskMap, taskId = 0) { results += 1 }
          deferred1.join()
+      }
+
+      assertEquals(listOf(0, 1), results)
+   }
+
+   // ==========================================================================
+
+   private inline fun test(crossinline action: suspend CoroutineScope.(DequeDispatcher) -> Unit) {
+      val dequeDispatcher = DequeDispatcher(workerThreadCount = 1)
+
+      runBlocking {
+         // action内でlaunchしたコルーチンが即発火されないように
+         // 300ミリ秒間WorkerThreadを占有する
+         launch(dequeDispatcher.first) {
+            @Suppress("BlockingMethodInNonBlockingContext")
+            Thread.sleep(300L)
+         }
+
+         action(dequeDispatcher)
+      }
+   }
+
+   /*
+    * L---D---F
+    * L-D=====F
+    */
+   @Test fun launch_dispatch間に他のコルーチンがdispatch_join() {
+      val results = LinkedList<Int>()
+
+      test { dispatcher ->
+         launch(dispatcher.first, taskId = 0) { results += 0; delay(50L) }
+         launch(dispatcher.first, taskId = 0) { results += 1; delay(50L) }
+      }
+
+      assertEquals(listOf(1), results)
+   }
+
+   /*
+    * L------DF
+    * L-D==F
+    */
+   @Test fun launch_dispatch間に他のコルーチンがdispatchして終わる_即終了() {
+      val results = LinkedList<Int>()
+
+      test { dispatcher ->
+         val mutex = Mutex(locked = true)
+
+         launch(dispatcher.last) {
+            mutex.unlock()
+
+            @Suppress("BlockingMethodInNonBlockingContext")
+            Thread.sleep(150L)
+         }
+
+         launch(dispatcher.last,     taskId = 0) { results += 0 }
+         mutex.lock()
+         launch(Dispatchers.Default, taskId = 0) { results += 1 }
+      }
+
+      assertEquals(listOf(1), results)
+   }
+
+   /*
+    *     L--D--F
+    * L-D=======F
+    */
+   @Test fun launchした時点ですでに他のコルーチンがdispatch済み_join() {
+      val results = LinkedList<Int>()
+
+      test { dispatcher ->
+         val mutex = Mutex(locked = true)
+         launch(dispatcher.last, taskId = 0) { mutex.unlock(); results += 0; delay(50L) }
+         mutex.lock()
+         launch(dispatcher.last, taskId = 0) { results += 1 }
+      }
+
+      assertEquals(listOf(0), results)
+   }
+
+   /*
+    *     L---DF
+    * L-D===F
+    */
+   @Test fun launchした時点ですでに他のコルーチンがdispatch済みでこっちのdispatchまでに終わる_即終了() {
+      val results = LinkedList<Int>()
+
+      test { dispatcher ->
+         val mutex = Mutex(locked = true)
+         launch(dispatcher.last, taskId = 0) { mutex.unlock(); results += 0; delay(50L) }
+         mutex.lock()
+
+         launch(dispatcher.last) {
+            @Suppress("BlockingMethodInNonBlockingContext")
+            Thread.sleep(150L)
+         }
+
+         launch(dispatcher.last, taskId = 0) { results += 1 }
+      }
+
+      assertEquals(listOf(0), results)
+   }
+
+   /*
+    *        L-D==F
+    * L-D==F
+    */
+   @Test fun launchした時点で他のコルーチンの実行が完全に終わってる_再度実行() {
+      val results = LinkedList<Int>()
+
+      test { dispatcher ->
+         val mutex = Mutex(locked = true)
+         launch(dispatcher.last, taskId = 0) { results += 0; delay(50L); mutex.unlock() }
+         mutex.lock()
+         launch(dispatcher.last, taskId = 0) { results += 1 }
       }
 
       assertEquals(listOf(0, 1), results)
