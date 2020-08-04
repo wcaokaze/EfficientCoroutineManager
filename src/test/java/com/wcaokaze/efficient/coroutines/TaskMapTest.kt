@@ -370,4 +370,152 @@ class TaskMapTest {
 
       assertEquals(listOf(0, 1), results)
    }
+
+   // ==========================================================================
+
+   @Test fun launchキャンセル_未実行の同IDの他タスクは実行される() {
+      val results = LinkedList<Int>()
+      val dispatcher = DequeDispatcher(workerThreadCount = 1)
+
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val job = launch(dispatcher.last, taskMap = taskMap, taskId = 0) {
+            @Suppress("BlockingMethodInNonBlockingContext")
+            Thread.sleep(150L)
+            yield()
+            results += 0
+         }
+
+         launch(dispatcher.last, taskMap = taskMap, taskId = 0) {
+            results += 1
+         }
+
+         delay(50L)
+
+         job.cancel()
+      }
+
+      assertEquals(listOf(1), results)
+   }
+
+   @Test fun launchキャンセル_join待機中の同IDの他タスクは実行される() {
+      val results = LinkedList<Int>()
+      val dispatcher = DequeDispatcher(workerThreadCount = 1)
+
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val job = launch(dispatcher.last, taskMap = taskMap, taskId = 0) {
+            delay(150L)
+            results += 0
+         }
+
+         launch(dispatcher.last, taskMap = taskMap, taskId = 0) {
+            results += 1
+         }
+
+         delay(50L)
+
+         job.cancel()
+      }
+
+      assertEquals(listOf(1), results)
+   }
+
+   @Test fun launch例外_未実行の同IDの他タスクは実行される() {
+      val results = LinkedList<Int>()
+      val dispatcher = DequeDispatcher(workerThreadCount = 1)
+      val exceptionIgnorer = CoroutineExceptionHandler { _, _ -> }
+
+      runBlocking {
+         val taskMap = TaskMap()
+
+         GlobalScope.launch(dispatcher.last + exceptionIgnorer, taskMap = taskMap, taskId = 0) {
+            delay(50L)
+            throw Exception()
+         }
+
+         launch(dispatcher.last, taskMap = taskMap, taskId = 0) {
+            results += 1
+         }
+      }
+
+      assertEquals(listOf(1), results)
+   }
+
+   @Test fun asyncキャンセル_未実行の同IDの他タスクは実行される() {
+      val results = LinkedList<Int>()
+      val dispatcher = DequeDispatcher(workerThreadCount = 1)
+
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val deferred1 = async(dispatcher.last, taskMap = taskMap, taskId = 0) {
+            @Suppress("BlockingMethodInNonBlockingContext")
+            Thread.sleep(150L)
+            yield()
+            results += 0
+         }
+
+         val deferred2 = async(dispatcher.last, taskMap = taskMap, taskId = 0) {
+            results += 1
+         }
+
+         delay(50L)
+
+         deferred1.cancel()
+         deferred2.await()
+      }
+
+      assertEquals(listOf(1), results)
+   }
+
+   @Test fun asyncキャンセル_await待機中の同IDの他タスクは実行される() {
+      val results = LinkedList<Int>()
+      val dispatcher = DequeDispatcher(workerThreadCount = 1)
+
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val deferred1 = async(dispatcher.last, taskMap = taskMap, taskId = 0) {
+            delay(150L)
+            results += 0
+         }
+
+         val deferred2 = async(dispatcher.last, taskMap = taskMap, taskId = 0) {
+            results += 1
+         }
+
+         delay(50L)
+
+         deferred1.cancel()
+         deferred2.await()
+      }
+
+      assertEquals(listOf(1), results)
+   }
+
+   @Test fun async_未実行の同IDの他タスクは実行される() {
+      val results = LinkedList<Int>()
+      val dispatcher = DequeDispatcher(workerThreadCount = 1)
+
+      runBlocking {
+         val taskMap = TaskMap()
+
+         val deferred1 = GlobalScope.async(dispatcher.last, taskMap = taskMap, taskId = 0) {
+            delay(50L)
+            throw Exception()
+         }
+
+         val deferred2 = async(dispatcher.last, taskMap = taskMap, taskId = 0) {
+            results += 1
+         }
+
+         deferred1.join()
+         deferred2.await()
+      }
+
+      assertEquals(listOf(1), results)
+   }
 }
