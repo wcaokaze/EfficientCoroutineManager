@@ -67,7 +67,9 @@ import kotlin.coroutines.*
  * ### 通常通り処理されるパターン
  * 同じtaskIdのコルーチンが他に存在しない場合か、
  * 他のコルーチンのDより先にこちらのDが発生した場合か、
- * こちらのLの時点ですでに他のコルーチンのFが終わっている場合です。
+ * こちらのLの時点ですでに他のコルーチンのFが終わっている場合、
+ * もしくは、上記の『処理が省略されるパターン』に一致し、他のコルーチンにjoinを試みたが、
+ * そのコルーチンがキャンセルされたか例外をスローした場合です。
  * ```
  * L--------D==========F
  *      L-------D------F
@@ -93,15 +95,31 @@ fun CoroutineScope.launch(
    val launchedTime = System.currentTimeMillis()
 
    job = launch(context, start) {
-      val activeTask = taskMap.onTaskActive(taskId, job, launchedTime)
+      while (true) {
+         val activeTask = taskMap.onTaskActive(taskId, job, launchedTime)
 
-      if (activeTask != null) {
-         activeTask.join()
-      } else {
-         block()
+         if (activeTask != null) {
+            try {
+               activeTask.join()
+               if (activeTask.isCancelled) { continue }
+            } finally {
+               taskMap.onTaskJoined(taskId, job)
+            }
+         } else {
+            try {
+               block()
+               taskMap.onTaskFinished(taskId, job)
+            } catch (e: CancellationException) {
+               taskMap.onTaskCancelled(taskId, job)
+               throw e
+            } catch (e: Throwable) {
+               taskMap.onTaskFinished(taskId, job)
+               throw e
+            }
+         }
+
+         break
       }
-
-      taskMap.onTaskFinished(taskId, job)
    }
 
    taskMap.addScheduledJob(taskId, job)
@@ -141,30 +159,54 @@ fun <T> CoroutineScope.async(
 
    val launchedTime = System.currentTimeMillis()
 
-   deferred = async(context, start) {
-      val activeTask = taskMap.onTaskActive(taskId, deferred, launchedTime)
+   deferred = async(context, start) coroutine@ {
+      loop@while (true) {
+         val activeTask = taskMap.onTaskActive(taskId, deferred, launchedTime)
 
-      val r = when {
-         activeTask is Deferred<*> -> {
-            @Suppress("UNCHECKED_CAST")
-            activeTask.await() as T
-         }
+         when {
+            activeTask is Deferred<*> -> {
+               try {
+                  @Suppress("UNCHECKED_CAST")
+                  return@coroutine activeTask.await() as T
+               } catch (e: Throwable) {
+                  continue@loop
+               } finally {
+                  taskMap.onTaskJoined(taskId, deferred)
+               }
+            }
 
-         activeTask != null -> {
-            activeTask.join()
+            activeTask != null -> {
+               try {
+                  activeTask.join()
+                  if (activeTask.isCancelled) { continue@loop }
+                  taskMap.onTaskJoined(taskId, deferred)
+               } catch (e: Throwable) {
+                  taskMap.onTaskJoined(taskId, deferred)
+                  throw e
+               }
 
-            @Suppress("UNCHECKED_CAST")
-            Unit as T
-         }
+               @Suppress("UNCHECKED_CAST")
+               return@coroutine Unit as T
+            }
 
-         else -> {
-            block()
+            else -> {
+               try {
+                  val r = block()
+                  taskMap.onTaskFinished(taskId, deferred)
+                  return@coroutine r
+               } catch (e: CancellationException) {
+                  taskMap.onTaskCancelled(taskId, deferred)
+                  throw e
+               } catch (e: Throwable) {
+                  taskMap.onTaskFinished(taskId, deferred)
+                  throw e
+               }
+            }
          }
       }
 
-      taskMap.onTaskFinished(taskId, deferred)
-
-      r
+      // 適当にNothing型の式を置いておかないとラムダ式の返り値がAnyに推論されてしまう
+      throw AssertionError()
    }
 
    taskMap.addScheduledJob(taskId, deferred)
@@ -226,9 +268,33 @@ class TaskMap {
          return
       }
 
-      if ((task.state as? Task.State.Active)?.job == job) {
-         task.state = Task.State.Finished(System.currentTimeMillis(), job)
+      task.state = Task.State.Finished(System.currentTimeMillis(), job)
+   }
+
+   @Synchronized
+   internal fun onTaskJoined(taskId: Any, job: Job) {
+      val task = tasks[taskId] ?: return
+
+      task.jobs -= job
+
+      if (task.jobs.isEmpty()) {
+         tasks -= taskId
+         return
       }
+   }
+
+   @Synchronized
+   internal fun onTaskCancelled(taskId: Any, job: Job) {
+      val task = tasks[taskId] ?: return
+
+      task.jobs -= job
+
+      if (task.jobs.isEmpty()) {
+         tasks -= taskId
+         return
+      }
+
+      task.state = Task.State.Cancelled(System.currentTimeMillis())
    }
 }
 
@@ -244,5 +310,7 @@ internal class Task(var state: State) {
 
       /** 完了済み */
       class Finished(time: Long, val job: Job) : State(time)
+
+      class Cancelled(time: Long) : State(time)
    }
 }
